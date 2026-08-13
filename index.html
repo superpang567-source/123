@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>阿邦團購</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- 主容器 -->
+    <div id="app">
+        <!-- 頂部標題 -->
+        <header class="app-header">
+            <h1>🛒 阿邦團購</h1>
+            <button id="btnCreate" class="btn-create">＋ 發起接龍</button>
+        </header>
+
+        <!-- ===== 列表檢視 ===== -->
+        <div id="listView">
+            <div id="activityList">
+                <!-- 這裡由 JavaScript 動態渲染 -->
+            </div>
+        </div>
+
+        <!-- ===== 詳情 / 參與檢視 ===== -->
+        <div id="detailView" style="display: none;">
+            <div id="detailContent">
+                <!-- 這裡由 JavaScript 動態渲染 -->
+            </div>
+        </div>
+
+        <!-- ===== 建立接龍的彈窗 ===== -->
+        <div id="createModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close" id="closeModal">&times;</span>
+                <h2>🚀 發起新接龍</h2>
+                <form id="createForm">
+                    <input type="text" id="activityName" placeholder="商品名稱（如：海南芒果）" required>
+                    <input type="number" id="activityPrice" placeholder="價格（如：49.9）" step="0.01" required>
+                    <input type="datetime-local" id="activityDeadline" required>
+                    <textarea id="activityDesc" placeholder="補充說明（選填）"></textarea>
+                    <input type="password" id="adminPassword" placeholder="請輸入管理密碼" required>
+                    <button type="submit">🚀 立即發佈</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- ===== 刪除確認彈窗 ===== -->
+        <div id="deleteModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close" id="closeDeleteModal">&times;</span>
+                <h2>🗑️ 刪除接龍</h2>
+                <p style="color:#6b7a8a;margin-bottom:16px;font-size:15px;line-height:1.7;">
+                    確定要刪除「<span id="deleteActivityName" style="color:#ff6b6b;font-weight:700;"></span>」嗎？<br>
+                    刪除後所有參與資料將遺失，請輸入管理密碼確認。
+                </p>
+                <form id="deleteForm">
+                    <input type="password" id="deletePassword" placeholder="請輸入管理密碼" required>
+                    <div class="delete-error" id="deleteError">❌ 密碼錯誤，請重新輸入</div>
+                    <div style="display:flex;gap:10px;">
+                        <button type="button" id="cancelDelete" class="btn-cancel">取消</button>
+                        <button type="submit" id="confirmDelete" class="btn-danger">確認刪除</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
