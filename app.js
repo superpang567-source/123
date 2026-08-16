@@ -1,35 +1,137 @@
 // ============================================================
+//  Firebase 設定（已填入你的設定）
+// ============================================================
+
+const firebaseConfig = {
+    apiKey: "AIzaSyAKKtIfqO3vLhXt21R2oEqwUpZLRoilhSI",
+    authDomain: "project-6803353187316865737.firebaseapp.com",
+    databaseURL: "https://project-6803353187316865737-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "project-6803353187316865737",
+    storageBucket: "project-6803353187316865737.firebasestorage.app",
+    messagingSenderId: "813257517405",
+    appId: "1:813257517405:web:d572026c31ad094fc7a0b4",
+    measurementId: "G-WFQVMFGF1X"
+};
+
+// ============================================================
+//  初始化 Firebase
+// ============================================================
+
+// 動態載入 Firebase SDK
+const script1 = document.createElement('script');
+script1.src = 'https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js';
+document.head.appendChild(script1);
+
+const script2 = document.createElement('script');
+script2.src = 'https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js';
+document.head.appendChild(script2);
+
+let db = null;
+let firebaseReady = false;
+let isFirstLoad = true;
+
+function initFirebase() {
+    if (typeof firebase !== 'undefined' && !firebaseReady) {
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.database();
+        firebaseReady = true;
+        console.log('✅ Firebase 已連線');
+        // 連線後立即讀取資料
+        loadDataFromFirebase();
+    }
+}
+
+// 檢查 Firebase 是否載入完成
+const checkFirebase = setInterval(() => {
+    if (typeof firebase !== 'undefined') {
+        clearInterval(checkFirebase);
+        initFirebase();
+    }
+}, 200);
+
+// ============================================================
 //  設定區
 // ============================================================
 
 const ADMIN_PASSWORD = '123456';
 
 // ============================================================
-//  資料層
+//  資料層（使用 Firebase）
 // ============================================================
 
-const DB_KEY = 'groupBuyData';
+let localData = { activities: [] };
 
-function getDefaultData() {
-    return {
-        activities: []
-    };
+// 從 Firebase 讀取資料（即時同步）
+function loadDataFromFirebase() {
+    if (!db) return;
+    
+    db.ref('activities').on('value', (snapshot) => {
+        const val = snapshot.val();
+        if (val) {
+            const activities = Object.keys(val).map(key => ({
+                id: key,
+                ...val[key]
+            }));
+            localData = { activities: activities };
+            console.log('📥 從 Firebase 讀取資料，共', activities.length, '筆');
+            
+            // 更新畫面
+            renderList();
+            if (_currentDetailId && detailView.style.display !== 'none') {
+                const activity = localData.activities.find(a => a.id === _currentDetailId);
+                if (activity) {
+                    renderDetailContent(activity);
+                }
+            }
+        } else {
+            localData = { activities: [] };
+            renderList();
+        }
+    }, (error) => {
+        console.error('❌ 讀取 Firebase 失敗：', error);
+    });
 }
 
-function loadData() {
-    const raw = localStorage.getItem(DB_KEY);
-    if (!raw) return getDefaultData();
-    try {
-        const data = JSON.parse(raw);
-        if (!data.activities) data.activities = [];
-        return data;
-    } catch {
-        return getDefaultData();
+// 儲存到 Firebase
+function saveDataToFirebase(data) {
+    if (!db) {
+        console.warn('⚠️ Firebase 尚未連線，稍後再試');
+        return;
     }
+    
+    const activitiesObj = {};
+    data.activities.forEach(a => {
+        activitiesObj[a.id] = {
+            name: a.name,
+            price: a.price,
+            deadline: a.deadline,
+            desc: a.desc || '',
+            createdAt: a.createdAt,
+            participants: a.participants || []
+        };
+    });
+    
+    db.ref('activities').set(activitiesObj, (error) => {
+        if (error) {
+            console.error('❌ 儲存失敗：', error);
+            alert('⚠️ 儲存失敗，請檢查網路連線後重試');
+        } else {
+            console.log('✅ 資料已儲存到 Firebase');
+        }
+    });
+}
+
+// ============================================================
+//  資料操作函數
+// ============================================================
+
+function loadData() {
+    return localData;
 }
 
 function saveData(data) {
-    localStorage.setItem(DB_KEY, JSON.stringify(data));
+    localData = data;
+    saveDataToFirebase(data);
 }
 
 function generateId() {
@@ -98,6 +200,7 @@ const createModal = document.getElementById('createModal');
 const closeModal = document.getElementById('closeModal');
 const btnCreate = document.getElementById('btnCreate');
 const createForm = document.getElementById('createForm');
+
 const deleteModal = document.getElementById('deleteModal');
 const closeDeleteModal = document.getElementById('closeDeleteModal');
 const deleteForm = document.getElementById('deleteForm');
@@ -131,8 +234,6 @@ function renderList() {
         const expired = isExpired(a.deadline);
         const remainingText = getRemainingText(a.deadline);
         const deadlineClass = expired ? 'deadline expired' : 'deadline';
-
-        // 卡片邊框顏色依據是否截止變化
         const borderColor = expired ? '#ff6b6b' : '#ff7e5f';
 
         html += `
@@ -162,6 +263,7 @@ function renderList() {
     document.querySelectorAll('.delete-btn').forEach(btn => {
         btn.addEventListener('click', function(e) {
             e.stopPropagation();
+            e.preventDefault();
             const id = this.dataset.id;
             openDeleteModal(id);
         });
@@ -341,6 +443,11 @@ function handleJoin(activityId) {
 
 // ---------- 刪除接龍 ----------
 function openDeleteModal(activityId) {
+    if (!deleteModal) {
+        alert('❌ 刪除視窗元件遺失，請重新整理頁面');
+        return;
+    }
+
     const data = loadData();
     const activity = data.activities.find(a => a.id === activityId);
     if (!activity) {
@@ -349,75 +456,107 @@ function openDeleteModal(activityId) {
     }
 
     _pendingDeleteId = activityId;
-    deleteActivityName.textContent = activity.name;
-    deletePassword.value = '';
-    deleteError.style.display = 'none';
+    if (deleteActivityName) {
+        deleteActivityName.textContent = activity.name;
+    }
+    if (deletePassword) {
+        deletePassword.value = '';
+    }
+    if (deleteError) {
+        deleteError.style.display = 'none';
+    }
     deleteModal.style.display = 'flex';
-    setTimeout(() => deletePassword.focus(), 100);
+    setTimeout(() => {
+        if (deletePassword) deletePassword.focus();
+    }, 100);
 }
 
 function closeDeleteModalFn() {
-    deleteModal.style.display = 'none';
+    if (deleteModal) {
+        deleteModal.style.display = 'none';
+    }
     _pendingDeleteId = null;
-    deletePassword.value = '';
-    deleteError.style.display = 'none';
+    if (deletePassword) {
+        deletePassword.value = '';
+    }
+    if (deleteError) {
+        deleteError.style.display = 'none';
+    }
 }
 
-closeDeleteModal.addEventListener('click', closeDeleteModalFn);
-cancelDelete.addEventListener('click', closeDeleteModalFn);
-deleteModal.addEventListener('click', function(e) {
-    if (e.target === deleteModal) {
+if (closeDeleteModal) {
+    closeDeleteModal.addEventListener('click', closeDeleteModalFn);
+}
+if (cancelDelete) {
+    cancelDelete.addEventListener('click', closeDeleteModalFn);
+}
+if (deleteModal) {
+    deleteModal.addEventListener('click', function(e) {
+        if (e.target === deleteModal) {
+            closeDeleteModalFn();
+        }
+    });
+}
+
+if (deleteForm) {
+    deleteForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const password = deletePassword ? deletePassword.value.trim() : '';
+
+        if (password !== ADMIN_PASSWORD) {
+            if (deleteError) {
+                deleteError.style.display = 'block';
+            }
+            if (deletePassword) {
+                deletePassword.value = '';
+                deletePassword.focus();
+            }
+            return;
+        }
+
+        if (deleteError) {
+            deleteError.style.display = 'none';
+        }
+
+        if (!_pendingDeleteId) {
+            alert('發生錯誤，請重新操作');
+            closeDeleteModalFn();
+            return;
+        }
+
+        const data = loadData();
+        const index = data.activities.findIndex(a => a.id === _pendingDeleteId);
+        if (index === -1) {
+            alert('該接龍已不存在');
+            closeDeleteModalFn();
+            return;
+        }
+
+        const deletedName = data.activities[index].name;
+        data.activities.splice(index, 1);
+        saveData(data);
+
         closeDeleteModalFn();
-    }
-});
 
-deleteForm.addEventListener('submit', function(e) {
-    e.preventDefault();
+        if (_currentDetailId === _pendingDeleteId) {
+            detailView.style.display = 'none';
+            listView.style.display = 'block';
+            _currentDetailId = null;
+        }
 
-    const password = deletePassword.value.trim();
+        renderList();
+        alert(`✅ 已刪除「${deletedName}」`);
+    });
+}
 
-    if (password !== ADMIN_PASSWORD) {
-        deleteError.style.display = 'block';
-        deletePassword.value = '';
-        deletePassword.focus();
-        return;
-    }
-
-    deleteError.style.display = 'none';
-
-    if (!_pendingDeleteId) {
-        alert('發生錯誤，請重新操作');
-        closeDeleteModalFn();
-        return;
-    }
-
-    const data = loadData();
-    const index = data.activities.findIndex(a => a.id === _pendingDeleteId);
-    if (index === -1) {
-        alert('該接龍已不存在');
-        closeDeleteModalFn();
-        return;
-    }
-
-    const deletedName = data.activities[index].name;
-    data.activities.splice(index, 1);
-    saveData(data);
-
-    closeDeleteModalFn();
-
-    if (_currentDetailId === _pendingDeleteId) {
-        detailView.style.display = 'none';
-        listView.style.display = 'block';
-        _currentDetailId = null;
-    }
-
-    renderList();
-    alert(`✅ 已刪除「${deletedName}」`);
-});
-
-deletePassword.addEventListener('input', function() {
-    deleteError.style.display = 'none';
-});
+if (deletePassword) {
+    deletePassword.addEventListener('input', function() {
+        if (deleteError) {
+            deleteError.style.display = 'none';
+        }
+    });
+}
 
 // ---------- 輔助 ----------
 function escapeHtml(text) {
@@ -548,5 +687,11 @@ document.addEventListener('DOMContentLoaded', function() {
 //  啟動
 // ============================================================
 
+console.log('🚀 阿邦團購啟動中...');
+console.log('🔑 管理密碼：', ADMIN_PASSWORD);
 renderList();
 startTimer();
+
+if (!firebaseReady) {
+    console.log('⏳ 等待 Firebase 連線...');
+}
