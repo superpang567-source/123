@@ -99,7 +99,6 @@ function loadDataFromFirebase() {
             
             renderList();
             
-            // 如果正在看詳情，只更新資訊區 + 參與者列表（不動表單）
             if (_currentDetailId && detailView.style.display !== 'none') {
                 updateDetailInfoAndParticipants();
             }
@@ -297,7 +296,6 @@ function showDetail(activityId) {
     listView.style.display = 'none';
     detailView.style.display = 'block';
 
-    // 載入用戶資料到表單
     const userProfile = getUserProfile();
     if (userProfile) {
         inputName.value = userProfile.name || '';
@@ -310,16 +308,14 @@ function showDetail(activityId) {
     }
     inputQty.value = '1';
 
-    // 更新商品資訊和參與者列表
     updateDetailInfoAndParticipants();
 
-    // 綁定參與按鈕（只綁定一次）
     btnJoin.onclick = function() {
         handleJoin(activity.id);
     };
 }
 
-// ---------- 更新商品資訊 + 參與者列表（表單不動） ----------
+// ---------- 更新商品資訊 + 參與者列表 ----------
 function updateDetailInfoAndParticipants() {
     if (!_currentDetailId) return;
     
@@ -327,6 +323,8 @@ function updateDetailInfoAndParticipants() {
     const activity = data.activities.find(a => a.id === _currentDetailId);
     if (!activity) {
         detailContent.innerHTML = '<div style="color:#ff6b6b;text-align:center;padding:30px 0;">⚠️ 此接龍已被刪除</div>';
+        participantListContainer.innerHTML = '';
+        if (summaryRow) summaryRow.innerHTML = '';
         return;
     }
 
@@ -340,7 +338,6 @@ function updateDetailInfoAndParticipants() {
     const deadlineClass = expired ? 'detail-deadline expired' : 'detail-deadline';
     const expiredBadge = expired ? '<span class="badge-expired">已截止</span>' : '';
 
-    // 更新商品資訊區
     detailContent.innerHTML = `
         <button class="back-btn" id="backToList">← 返回列表</button>
         <div class="detail-title">
@@ -367,7 +364,7 @@ function updateDetailInfoAndParticipants() {
         </div>
     `;
 
-    // 更新按鈕狀態（已截止則禁用）
+    // 更新按鈕狀態
     if (expired) {
         btnJoin.disabled = true;
         btnJoin.textContent = '⏰ 已截止，無法參與';
@@ -384,8 +381,38 @@ function updateDetailInfoAndParticipants() {
         inputQty.disabled = false;
     }
 
-    // 更新參與者列表
-    updateParticipantList(participants, price, totalAmount);
+    // 更新參與者列表（純列表，沒有標題）
+    if (!participants || participants.length === 0) {
+        participantListContainer.innerHTML = '<div style="color:#b0a8a0;text-align:center;padding:16px 0;font-size:15px;">還沒有任何人參與，快來搶購吧 🛍️</div>';
+        if (summaryRow) summaryRow.innerHTML = '';
+    } else {
+        let html = participants.map((p, index) => {
+            const qty = parseInt(p.qty) || 1;
+            const total = calcParticipantTotal(qty, price);
+            return `
+                <div class="item" key="${index}">
+                    <div class="info">
+                        <span class="name">${escapeHtml(p.name)}</span>
+                        <span class="address">🏠 ${escapeHtml(p.address || '未填')}</span>
+                    </div>
+                    <div class="right">
+                        <span class="qty">${qty}件</span>
+                        <span class="total">${formatMoney(total)}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        participantListContainer.innerHTML = html;
+
+        if (summaryRow) {
+            summaryRow.innerHTML = `
+                <div class="summary-row">
+                    <span>📊 總計</span>
+                    <span class="total-amount">${formatMoney(totalAmount)}</span>
+                </div>
+            `;
+        }
+    }
 
     // 重新綁定返回按鈕
     const backBtn = document.getElementById('backToList');
@@ -399,45 +426,6 @@ function updateDetailInfoAndParticipants() {
             }
             renderList();
         };
-    }
-}
-
-// ---------- 更新參與者列表 ----------
-function updateParticipantList(participants, price, totalAmount) {
-    if (!participantListContainer) return;
-
-    if (!participants || participants.length === 0) {
-        participantListContainer.innerHTML = '<div style="color:#b0a8a0;text-align:center;padding:16px 0;font-size:15px;">還沒有任何人參與，快來搶購吧 🛍️</div>';
-        if (summaryRow) summaryRow.innerHTML = '';
-        return;
-    }
-
-    let html = participants.map((p, index) => {
-        const qty = parseInt(p.qty) || 1;
-        const total = calcParticipantTotal(qty, price);
-        return `
-            <div class="item" key="${index}">
-                <div class="info">
-                    <span class="name">${escapeHtml(p.name)}</span>
-                    <span class="address">🏠 ${escapeHtml(p.address || '未填')}</span>
-                </div>
-                <div class="right">
-                    <span class="qty">${qty}件</span>
-                    <span class="total">${formatMoney(total)}</span>
-                </div>
-            </div>
-        `;
-    }).join('');
-
-    participantListContainer.innerHTML = html;
-
-    if (summaryRow) {
-        summaryRow.innerHTML = `
-            <div class="summary-row">
-                <span>📊 總計</span>
-                <span class="total-amount">${formatMoney(totalAmount)}</span>
-            </div>
-        `;
     }
 }
 
@@ -481,7 +469,7 @@ function handleJoin(activityId) {
         joinedAt: new Date().toISOString()
     });
 
-    saveData(currentData);
+    saveData(currentActivity);
     inputQty.value = '1';
     updateDetailInfoAndParticipants();
     renderList();
