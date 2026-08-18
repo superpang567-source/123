@@ -7,29 +7,46 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- 主容器 -->
     <div id="app">
-        <!-- 頂部標題 -->
         <header class="app-header">
             <h1>🛒 阿邦團購</h1>
             <button id="btnCreate" class="btn-create">＋ 發起接龍</button>
         </header>
 
-        <!-- ===== 列表檢視 ===== -->
         <div id="listView">
-            <div id="activityList">
-                <!-- 這裡由 JavaScript 動態渲染 -->
-            </div>
+            <div id="activityList"></div>
         </div>
 
-        <!-- ===== 詳情 / 參與檢視 ===== -->
+        <!-- ===== 詳情頁（表單獨立出來，不會被重新繪製） ===== -->
         <div id="detailView" style="display: none;">
+            
+            <!-- 返回按鈕和商品資訊（會被更新） -->
             <div id="detailContent">
-                <!-- 這裡由 JavaScript 動態渲染 -->
+                <!-- 商品名稱、價格、倒數、統計卡片 -->
             </div>
+
+            <!-- ⭐ 參與表單（獨立出來，永遠不會被重新繪製！） -->
+            <div class="participant-form" id="fixedForm">
+                <input type="text" id="inputName" placeholder="你的名字" required>
+                <input type="text" id="inputAddress" placeholder="社區名稱 + 門牌號碼（如：幸福社區 5號3樓）" required>
+                <input type="number" id="inputQty" placeholder="購買數量" value="1" min="1">
+                <button class="btn-submit" id="btnJoin">🔥 立即參與</button>
+                <div id="savedHint" style="font-size:12px;color:#8a7a6a;text-align:right;margin-top:4px;display:none;">💾 已記住你的資料</div>
+            </div>
+
+            <!-- 參與者列表（會被更新） -->
+            <div class="participant-list" id="participantSection">
+                <div class="list-header">
+                    <span>📋 已參與</span>
+                    <span>金額</span>
+                </div>
+                <div id="participantListContainer"></div>
+                <div id="summaryRow"></div>
+            </div>
+
         </div>
 
-        <!-- ===== 建立接龍的彈窗 ===== -->
+        <!-- ===== 建立接龍彈窗 ===== -->
         <div id="createModal" class="modal" style="display: none;">
             <div class="modal-content">
                 <span class="close" id="closeModal">&times;</span>
@@ -50,7 +67,7 @@
             <div class="modal-content">
                 <span class="close" id="closeDeleteModal">&times;</span>
                 <h2>🗑️ 刪除接龍</h2>
-                <p style="color:#6b7a8a;margin-bottom:16px;font-size:15px;line-height:1.7;">
+                <p style="color:#6b7a6a;margin-bottom:16px;font-size:15px;line-height:1.7;">
                     確定要刪除「<span id="deleteActivityName" style="color:#ff6b6b;font-weight:700;"></span>」嗎？<br>
                     刪除後所有參與資料將遺失，請輸入管理密碼確認。
                 </p>
