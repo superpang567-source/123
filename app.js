@@ -1,5 +1,5 @@
 // ============================================================
-//  Firebase 設定（已填入你的設定）
+//  Firebase 設定
 // ============================================================
 
 const firebaseConfig = {
@@ -81,7 +81,13 @@ function saveUserProfile(name, address) {
 // ============================================================
 
 let localData = { activities: [] };
-let isInputFocused = false;  // ✅ 新增：標記是否正在輸入
+let _currentDetailId = null;
+let _pendingDeleteId = null;
+
+// 儲存當前輸入框的值
+let currentName = '';
+let currentAddress = '';
+let currentQty = '1';
 
 function loadDataFromFirebase() {
     if (!db) return;
@@ -96,23 +102,16 @@ function loadDataFromFirebase() {
             localData = { activities: activities };
             console.log('📥 從 Firebase 讀取資料，共', activities.length, '筆');
             
-            // ✅ 如果正在輸入，不更新畫面（避免游標跳掉）
-            if (!isInputFocused) {
-                renderList();
-                if (_currentDetailId && detailView.style.display !== 'none') {
-                    const activity = localData.activities.find(a => a.id === _currentDetailId);
-                    if (activity) {
-                        renderDetailContent(activity);
-                    }
-                }
-            } else {
-                console.log('⏸️ 輸入中，暫停更新畫面');
+            // 更新列表
+            renderList();
+            
+            // 如果正在看詳情，更新參與者列表（但不重建整個表單）
+            if (_currentDetailId && detailView.style.display !== 'none') {
+                updateParticipantListOnly();
             }
         } else {
             localData = { activities: [] };
-            if (!isInputFocused) {
-                renderList();
-            }
+            renderList();
         }
     }, (error) => {
         console.error('❌ 讀取 Firebase 失敗：', error);
@@ -236,8 +235,6 @@ const cancelDelete = document.getElementById('cancelDelete');
 const deleteActivityName = document.getElementById('deleteActivityName');
 
 let timerInterval = null;
-let _currentDetailId = null;
-let _pendingDeleteId = null;
 
 // ---------- 渲染列表 ----------
 function renderList() {
@@ -296,7 +293,7 @@ function renderList() {
     });
 }
 
-// ---------- 顯示詳情 ----------
+// ---------- 顯示詳情（只建立一次表單） ----------
 function showDetail(activityId) {
     _currentDetailId = activityId;
     const data = loadData();
@@ -309,15 +306,22 @@ function showDetail(activityId) {
     listView.style.display = 'none';
     detailView.style.display = 'block';
 
-    renderDetailContent(activity);
+    // 讀取已儲存的用戶資料
+    const userProfile = getUserProfile();
+    if (userProfile) {
+        currentName = userProfile.name || '';
+        currentAddress = userProfile.address || '';
+    } else {
+        currentName = '';
+        currentAddress = '';
+    }
+    currentQty = '1';
+
+    buildDetailPage(activity);
 }
 
-// ✅ 儲存當前輸入框的值（用於恢復）
-let tempName = '';
-let tempAddress = '';
-let tempQty = '1';
-
-function renderDetailContent(activity) {
+// ---------- 建立詳情頁面（只執行一次） ----------
+function buildDetailPage(activity) {
     const participants = activity.participants || [];
     const count = participants.length;
     const totalQty = participants.reduce((sum, p) => sum + (parseInt(p.qty) || 1), 0);
@@ -329,42 +333,16 @@ function renderDetailContent(activity) {
 
     const expiredBadge = expired ? '<span class="badge-expired">已截止</span>' : '';
 
-    // ✅ 優先使用臨時儲存的值（輸入中的內容），否則用已儲存的用戶資料
-    const userProfile = getUserProfile();
-    const savedName = userProfile ? userProfile.name : '';
-    const savedAddress = userProfile ? userProfile.address : '';
-    
-    const displayName = tempName !== '' ? tempName : savedName;
-    const displayAddress = tempAddress !== '' ? tempAddress : savedAddress;
-    const displayQty = tempQty !== '' ? tempQty : '1';
-
-    let participantHtml = '';
-    if (participants.length === 0) {
-        participantHtml = '<div style="color:#b0a8a0;text-align:center;padding:16px 0;font-size:15px;">還沒有任何人參與，快來搶購吧 🛍️</div>';
-    } else {
-        participantHtml = participants.map((p, index) => {
-            const qty = parseInt(p.qty) || 1;
-            const total = calcParticipantTotal(qty, price);
-            return `
-                <div class="item" key="${index}">
-                    <div class="info">
-                        <span class="name">${escapeHtml(p.name)}</span>
-                        <span class="address">🏠 ${escapeHtml(p.address || '未填')}</span>
-                    </div>
-                    <div class="right">
-                        <span class="qty">${qty}件</span>
-                        <span class="total">${formatMoney(total)}</span>
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
+    // 產生參與者列表 HTML
+    const participantHtml = buildParticipantListHtml(participants, price);
 
     const deadlineDisplay = activity.deadline ? new Date(activity.deadline).toLocaleString('zh-TW') : '未設定';
 
     const btnDisabled = expired ? 'disabled' : '';
     const btnText = expired ? '⏰ 已截止，無法參與' : '🔥 立即參與';
     const btnClass = expired ? 'btn-submit expired-btn' : 'btn-submit';
+
+    const hasSaved = getUserProfile() !== null;
 
     detailContent.innerHTML = `
         <button class="back-btn" id="backToList">← 返回列表</button>
@@ -376,29 +354,29 @@ function renderDetailContent(activity) {
         <div class="${deadlineClass}">${remainingText}（截止：${deadlineDisplay}）</div>
         ${activity.desc ? `<div style="color:#8a7a6a;font-size:14px;margin:4px 0 10px;background:#faf8f7;padding:10px 14px;border-radius:10px;">${escapeHtml(activity.desc)}</div>` : ''}
 
-        <div class="stats-row">
+        <div class="stats-row" id="statsRow">
             <div class="stat-item">
-                <div class="number">${count}</div>
+                <div class="number" id="statCount">${count}</div>
                 <div class="label">👤 參加人數</div>
             </div>
             <div class="stat-item">
-                <div class="number">${totalQty}</div>
+                <div class="number" id="statTotalQty">${totalQty}</div>
                 <div class="label">📦 總件數</div>
             </div>
             <div class="stat-item">
-                <div class="number">${formatMoney(totalAmount)}</div>
+                <div class="number" id="statTotalAmount">${formatMoney(totalAmount)}</div>
                 <div class="label">💰 總金額</div>
             </div>
         </div>
 
         <div class="participant-form">
-            <input type="text" id="inputName" placeholder="你的名字" required ${expired ? 'disabled' : ''} value="${escapeHtml(displayName)}">
-            <input type="text" id="inputAddress" placeholder="社區名稱 + 門牌號碼（如：幸福社區 5號3樓）" required ${expired ? 'disabled' : ''} value="${escapeHtml(displayAddress)}">
-            <input type="number" id="inputQty" placeholder="購買數量" value="${displayQty}" min="1" ${expired ? 'disabled' : ''}>
+            <input type="text" id="inputName" placeholder="你的名字" required ${expired ? 'disabled' : ''} value="${escapeHtml(currentName)}">
+            <input type="text" id="inputAddress" placeholder="社區名稱 + 門牌號碼（如：幸福社區 5號3樓）" required ${expired ? 'disabled' : ''} value="${escapeHtml(currentAddress)}">
+            <input type="number" id="inputQty" placeholder="購買數量" value="${currentQty}" min="1" ${expired ? 'disabled' : ''}>
             <button class="${btnClass}" id="btnJoin" ${btnDisabled}>
                 ${btnText}
             </button>
-            ${userProfile ? `<div style="font-size:12px;color:#8a7a6a;text-align:right;margin-top:4px;">💾 已記住你的資料</div>` : ''}
+            ${hasSaved ? `<div style="font-size:12px;color:#8a7a6a;text-align:right;margin-top:4px;">💾 已記住你的資料</div>` : ''}
         </div>
 
         <div class="participant-list">
@@ -406,72 +384,43 @@ function renderDetailContent(activity) {
                 <span>📋 已參與</span>
                 <span>金額</span>
             </div>
-            ${participantHtml}
+            <div id="participantListContainer">
+                ${participantHtml}
+            </div>
             ${participants.length > 0 ? `
-                <div class="summary-row">
+                <div class="summary-row" id="summaryRow">
                     <span>📊 總計</span>
-                    <span class="total-amount">${formatMoney(totalAmount)}</span>
+                    <span class="total-amount" id="summaryTotal">${formatMoney(totalAmount)}</span>
                 </div>
-            ` : ''}
+            ` : '<div id="summaryRow"></div>'}
         </div>
     `;
 
-    // ✅ 綁定輸入事件：儲存當前輸入值 + 標記輸入中
+    // 綁定輸入事件（即時儲存輸入值）
     const nameInput = document.getElementById('inputName');
     const addressInput = document.getElementById('inputAddress');
     const qtyInput = document.getElementById('inputQty');
 
     if (nameInput) {
-        nameInput.addEventListener('focus', function() {
-            isInputFocused = true;
-            console.log('⌨️ 姓名輸入中');
-        });
-        nameInput.addEventListener('blur', function() {
-            isInputFocused = false;
-            tempName = this.value;
-            console.log('✅ 姓名輸入完成');
-        });
         nameInput.addEventListener('input', function() {
-            tempName = this.value;
+            currentName = this.value;
         });
     }
-
     if (addressInput) {
-        addressInput.addEventListener('focus', function() {
-            isInputFocused = true;
-            console.log('⌨️ 地址輸入中');
-        });
-        addressInput.addEventListener('blur', function() {
-            isInputFocused = false;
-            tempAddress = this.value;
-            console.log('✅ 地址輸入完成');
-        });
         addressInput.addEventListener('input', function() {
-            tempAddress = this.value;
+            currentAddress = this.value;
         });
     }
-
     if (qtyInput) {
-        qtyInput.addEventListener('focus', function() {
-            isInputFocused = true;
-        });
-        qtyInput.addEventListener('blur', function() {
-            isInputFocused = false;
-            tempQty = this.value || '1';
-        });
         qtyInput.addEventListener('input', function() {
-            tempQty = this.value || '1';
+            currentQty = this.value || '1';
         });
     }
 
+    // 返回列表
     document.getElementById('backToList').addEventListener('click', function() {
         detailView.style.display = 'none';
         listView.style.display = 'block';
-        isInputFocused = false;
-        // 清除臨時值
-        tempName = '';
-        tempAddress = '';
-        tempQty = '1';
         if (timerInterval) {
             clearInterval(timerInterval);
             timerInterval = null;
@@ -479,12 +428,86 @@ function renderDetailContent(activity) {
         renderList();
     });
 
+    // 參與按鈕
     const joinBtn = document.getElementById('btnJoin');
     if (!expired && joinBtn) {
         joinBtn.addEventListener('click', function() {
             handleJoin(activity.id);
         });
     }
+
+    // 儲存 activity 資料供更新用
+    detailContent.dataset.activityId = activity.id;
+}
+
+// ---------- 只更新參與者列表（不重建整個頁面） ----------
+function updateParticipantListOnly() {
+    if (!_currentDetailId) return;
+    
+    const data = loadData();
+    const activity = data.activities.find(a => a.id === _currentDetailId);
+    if (!activity) return;
+
+    const participants = activity.participants || [];
+    const price = parseFloat(activity.price);
+    const count = participants.length;
+    const totalQty = participants.reduce((sum, p) => sum + (parseInt(p.qty) || 1), 0);
+    const totalAmount = calcTotalAmount(participants, price);
+
+    // 更新統計數字
+    const statCount = document.getElementById('statCount');
+    const statTotalQty = document.getElementById('statTotalQty');
+    const statTotalAmount = document.getElementById('statTotalAmount');
+    const summaryTotal = document.getElementById('summaryTotal');
+    const summaryRow = document.getElementById('summaryRow');
+    const container = document.getElementById('participantListContainer');
+
+    if (statCount) statCount.textContent = count;
+    if (statTotalQty) statTotalQty.textContent = totalQty;
+    if (statTotalAmount) statTotalAmount.textContent = formatMoney(totalAmount);
+    if (summaryTotal) summaryTotal.textContent = formatMoney(totalAmount);
+
+    // 更新參與者列表
+    if (container) {
+        const html = buildParticipantListHtml(participants, price);
+        container.innerHTML = html;
+    }
+
+    // 更新總計欄
+    if (summaryRow) {
+        if (participants.length > 0) {
+            summaryRow.innerHTML = `
+                <span>📊 總計</span>
+                <span class="total-amount">${formatMoney(totalAmount)}</span>
+            `;
+        } else {
+            summaryRow.innerHTML = '';
+        }
+    }
+}
+
+// ---------- 建立參與者列表 HTML ----------
+function buildParticipantListHtml(participants, price) {
+    if (!participants || participants.length === 0) {
+        return '<div style="color:#b0a8a0;text-align:center;padding:16px 0;font-size:15px;">還沒有任何人參與，快來搶購吧 🛍️</div>';
+    }
+
+    return participants.map((p, index) => {
+        const qty = parseInt(p.qty) || 1;
+        const total = calcParticipantTotal(qty, price);
+        return `
+            <div class="item" key="${index}">
+                <div class="info">
+                    <span class="name">${escapeHtml(p.name)}</span>
+                    <span class="address">🏠 ${escapeHtml(p.address || '未填')}</span>
+                </div>
+                <div class="right">
+                    <span class="qty">${qty}件</span>
+                    <span class="total">${formatMoney(total)}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
 }
 
 // ---------- 處理參與 ----------
@@ -520,8 +543,6 @@ function handleJoin(activityId) {
     }
     if (isExpired(currentActivity.deadline)) {
         alert('⏰ 此接龍已截止，無法再參與');
-        renderDetailContent(currentActivity);
-        renderList();
         return;
     }
 
@@ -534,12 +555,14 @@ function handleJoin(activityId) {
     });
 
     saveData(currentData);
-    // 清除臨時值
-    tempName = '';
-    tempAddress = '';
-    tempQty = '1';
-    renderDetailContent(currentActivity);
+    
+    // 只更新參與者列表，不重建頁面
+    updateParticipantListOnly();
     renderList();
+
+    // 清空數量欄位（保留姓名和地址）
+    if (qtyInput) qtyInput.value = '1';
+    currentQty = '1';
 }
 
 // ---------- 刪除接龍 ----------
@@ -668,7 +691,7 @@ function escapeHtml(text) {
 }
 
 // ============================================================
-//  倒數計時定時器
+//  倒數計時定時器（只更新列表和參與者，不重建表單）
 // ============================================================
 
 function startTimer() {
@@ -676,18 +699,13 @@ function startTimer() {
         clearInterval(timerInterval);
     }
     timerInterval = setInterval(function() {
-        // ✅ 如果正在輸入，不更新畫面
-        if (isInputFocused) {
-            return;
-        }
-        if (detailView.style.display !== 'none' && _currentDetailId) {
-            const data = loadData();
-            const activity = data.activities.find(a => a.id === _currentDetailId);
-            if (activity) {
-                renderDetailContent(activity);
-            }
-        }
+        // 更新列表（倒數時間會變）
         renderList();
+        
+        // 如果正在看詳情，只更新參與者列表和統計
+        if (_currentDetailId && detailView.style.display !== 'none') {
+            updateParticipantListOnly();
+        }
     }, 10000);
 }
 
