@@ -77,17 +77,12 @@ function saveUserProfile(name, address) {
 }
 
 // ============================================================
-//  資料層（使用 Firebase）
+//  資料層
 // ============================================================
 
 let localData = { activities: [] };
 let _currentDetailId = null;
 let _pendingDeleteId = null;
-
-// 儲存當前輸入框的值
-let currentName = '';
-let currentAddress = '';
-let currentQty = '1';
 
 function loadDataFromFirebase() {
     if (!db) return;
@@ -102,12 +97,11 @@ function loadDataFromFirebase() {
             localData = { activities: activities };
             console.log('📥 從 Firebase 讀取資料，共', activities.length, '筆');
             
-            // 更新列表
             renderList();
             
-            // 如果正在看詳情，更新參與者列表（但不重建整個表單）
+            // 如果正在看詳情，只更新資訊區 + 參與者列表（不動表單）
             if (_currentDetailId && detailView.style.display !== 'none') {
-                updateParticipantListOnly();
+                updateDetailInfoAndParticipants();
             }
         } else {
             localData = { activities: [] };
@@ -120,7 +114,7 @@ function loadDataFromFirebase() {
 
 function saveDataToFirebase(data) {
     if (!db) {
-        console.warn('⚠️ Firebase 尚未連線，稍後再試');
+        console.warn('⚠️ Firebase 尚未連線');
         return;
     }
     
@@ -146,10 +140,6 @@ function saveDataToFirebase(data) {
     });
 }
 
-// ============================================================
-//  資料操作函數
-// ============================================================
-
 function loadData() {
     return localData;
 }
@@ -164,41 +154,26 @@ function generateId() {
 }
 
 // ============================================================
-//  倒數計時工具
+//  工具函數
 // ============================================================
 
 function getRemainingText(deadline) {
     const now = Date.now();
     const target = new Date(deadline).getTime();
     const diff = target - now;
-
-    if (diff <= 0) {
-        return '⏰ 已截止';
-    }
-
+    if (diff <= 0) return '⏰ 已截止';
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-
-    if (days > 0) {
-        return `⏳ 剩 ${days} 天 ${hours} 時`;
-    }
-    if (hours > 0) {
-        return `⏳ 剩 ${hours} 時 ${minutes} 分`;
-    }
-    if (minutes > 0) {
-        return `⏳ 剩 ${minutes} 分`;
-    }
+    if (days > 0) return `⏳ 剩 ${days} 天 ${hours} 時`;
+    if (hours > 0) return `⏳ 剩 ${hours} 時 ${minutes} 分`;
+    if (minutes > 0) return `⏳ 剩 ${minutes} 分`;
     return '⏳ 即將截止';
 }
 
 function isExpired(deadline) {
     return Date.now() > new Date(deadline).getTime();
 }
-
-// ============================================================
-//  金額計算工具
-// ============================================================
 
 function calcParticipantTotal(qty, price) {
     return (parseInt(qty) || 1) * parseFloat(price);
@@ -213,6 +188,13 @@ function formatMoney(amount) {
     return 'NT$ ' + amount.toFixed(2);
 }
 
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 // ============================================================
 //  畫面渲染
 // ============================================================
@@ -221,6 +203,10 @@ const listView = document.getElementById('listView');
 const detailView = document.getElementById('detailView');
 const activityList = document.getElementById('activityList');
 const detailContent = document.getElementById('detailContent');
+const participantListContainer = document.getElementById('participantListContainer');
+const summaryRow = document.getElementById('summaryRow');
+const savedHint = document.getElementById('savedHint');
+
 const createModal = document.getElementById('createModal');
 const closeModal = document.getElementById('closeModal');
 const btnCreate = document.getElementById('btnCreate');
@@ -233,6 +219,11 @@ const deletePassword = document.getElementById('deletePassword');
 const deleteError = document.getElementById('deleteError');
 const cancelDelete = document.getElementById('cancelDelete');
 const deleteActivityName = document.getElementById('deleteActivityName');
+
+const inputName = document.getElementById('inputName');
+const inputAddress = document.getElementById('inputAddress');
+const inputQty = document.getElementById('inputQty');
+const btnJoin = document.getElementById('btnJoin');
 
 let timerInterval = null;
 
@@ -293,57 +284,63 @@ function renderList() {
     });
 }
 
-// ---------- 顯示詳情（只建立一次表單） ----------
+// ---------- 顯示詳情 ----------
 function showDetail(activityId) {
     _currentDetailId = activityId;
     const data = loadData();
     const activity = data.activities.find(a => a.id === activityId);
     if (!activity) {
-        alert('該接龍不存在或已刪除');
+        alert('該接龍已不存在或已刪除');
         return;
     }
 
     listView.style.display = 'none';
     detailView.style.display = 'block';
 
-    // 讀取已儲存的用戶資料
+    // 載入用戶資料到表單
     const userProfile = getUserProfile();
     if (userProfile) {
-        currentName = userProfile.name || '';
-        currentAddress = userProfile.address || '';
+        inputName.value = userProfile.name || '';
+        inputAddress.value = userProfile.address || '';
+        savedHint.style.display = 'block';
     } else {
-        currentName = '';
-        currentAddress = '';
+        inputName.value = '';
+        inputAddress.value = '';
+        savedHint.style.display = 'none';
     }
-    currentQty = '1';
+    inputQty.value = '1';
 
-    buildDetailPage(activity);
+    // 更新商品資訊和參與者列表
+    updateDetailInfoAndParticipants();
+
+    // 綁定參與按鈕（只綁定一次）
+    btnJoin.onclick = function() {
+        handleJoin(activity.id);
+    };
 }
 
-// ---------- 建立詳情頁面（只執行一次） ----------
-function buildDetailPage(activity) {
+// ---------- 更新商品資訊 + 參與者列表（表單不動） ----------
+function updateDetailInfoAndParticipants() {
+    if (!_currentDetailId) return;
+    
+    const data = loadData();
+    const activity = data.activities.find(a => a.id === _currentDetailId);
+    if (!activity) {
+        detailContent.innerHTML = '<div style="color:#ff6b6b;text-align:center;padding:30px 0;">⚠️ 此接龍已被刪除</div>';
+        return;
+    }
+
     const participants = activity.participants || [];
+    const price = parseFloat(activity.price);
     const count = participants.length;
     const totalQty = participants.reduce((sum, p) => sum + (parseInt(p.qty) || 1), 0);
+    const totalAmount = calcTotalAmount(participants, price);
     const expired = isExpired(activity.deadline);
     const remainingText = getRemainingText(activity.deadline);
     const deadlineClass = expired ? 'detail-deadline expired' : 'detail-deadline';
-    const price = parseFloat(activity.price);
-    const totalAmount = calcTotalAmount(participants, price);
-
     const expiredBadge = expired ? '<span class="badge-expired">已截止</span>' : '';
 
-    // 產生參與者列表 HTML
-    const participantHtml = buildParticipantListHtml(participants, price);
-
-    const deadlineDisplay = activity.deadline ? new Date(activity.deadline).toLocaleString('zh-TW') : '未設定';
-
-    const btnDisabled = expired ? 'disabled' : '';
-    const btnText = expired ? '⏰ 已截止，無法參與' : '🔥 立即參與';
-    const btnClass = expired ? 'btn-submit expired-btn' : 'btn-submit';
-
-    const hasSaved = getUserProfile() !== null;
-
+    // 更新商品資訊區
     detailContent.innerHTML = `
         <button class="back-btn" id="backToList">← 返回列表</button>
         <div class="detail-title">
@@ -351,10 +348,10 @@ function buildDetailPage(activity) {
             ${expiredBadge}
         </div>
         <div class="detail-price">${formatMoney(price)}</div>
-        <div class="${deadlineClass}">${remainingText}（截止：${deadlineDisplay}）</div>
+        <div class="${deadlineClass}">${remainingText}（截止：${new Date(activity.deadline).toLocaleString('zh-TW')}）</div>
         ${activity.desc ? `<div style="color:#8a7a6a;font-size:14px;margin:4px 0 10px;background:#faf8f7;padding:10px 14px;border-radius:10px;">${escapeHtml(activity.desc)}</div>` : ''}
 
-        <div class="stats-row" id="statsRow">
+        <div class="stats-row">
             <div class="stat-item">
                 <div class="number" id="statCount">${count}</div>
                 <div class="label">👤 參加人數</div>
@@ -368,131 +365,54 @@ function buildDetailPage(activity) {
                 <div class="label">💰 總金額</div>
             </div>
         </div>
-
-        <div class="participant-form">
-            <input type="text" id="inputName" placeholder="你的名字" required ${expired ? 'disabled' : ''} value="${escapeHtml(currentName)}">
-            <input type="text" id="inputAddress" placeholder="社區名稱 + 門牌號碼（如：幸福社區 5號3樓）" required ${expired ? 'disabled' : ''} value="${escapeHtml(currentAddress)}">
-            <input type="number" id="inputQty" placeholder="購買數量" value="${currentQty}" min="1" ${expired ? 'disabled' : ''}>
-            <button class="${btnClass}" id="btnJoin" ${btnDisabled}>
-                ${btnText}
-            </button>
-            ${hasSaved ? `<div style="font-size:12px;color:#8a7a6a;text-align:right;margin-top:4px;">💾 已記住你的資料</div>` : ''}
-        </div>
-
-        <div class="participant-list">
-            <div class="list-header">
-                <span>📋 已參與</span>
-                <span>金額</span>
-            </div>
-            <div id="participantListContainer">
-                ${participantHtml}
-            </div>
-            ${participants.length > 0 ? `
-                <div class="summary-row" id="summaryRow">
-                    <span>📊 總計</span>
-                    <span class="total-amount" id="summaryTotal">${formatMoney(totalAmount)}</span>
-                </div>
-            ` : '<div id="summaryRow"></div>'}
-        </div>
     `;
 
-    // 綁定輸入事件（即時儲存輸入值）
-    const nameInput = document.getElementById('inputName');
-    const addressInput = document.getElementById('inputAddress');
-    const qtyInput = document.getElementById('inputQty');
-
-    if (nameInput) {
-        nameInput.addEventListener('input', function() {
-            currentName = this.value;
-        });
+    // 更新按鈕狀態（已截止則禁用）
+    if (expired) {
+        btnJoin.disabled = true;
+        btnJoin.textContent = '⏰ 已截止，無法參與';
+        btnJoin.className = 'btn-submit expired-btn';
+        inputName.disabled = true;
+        inputAddress.disabled = true;
+        inputQty.disabled = true;
+    } else {
+        btnJoin.disabled = false;
+        btnJoin.textContent = '🔥 立即參與';
+        btnJoin.className = 'btn-submit';
+        inputName.disabled = false;
+        inputAddress.disabled = false;
+        inputQty.disabled = false;
     }
-    if (addressInput) {
-        addressInput.addEventListener('input', function() {
-            currentAddress = this.value;
-        });
-    }
-    if (qtyInput) {
-        qtyInput.addEventListener('input', function() {
-            currentQty = this.value || '1';
-        });
-    }
-
-    // 返回列表
-    document.getElementById('backToList').addEventListener('click', function() {
-        detailView.style.display = 'none';
-        listView.style.display = 'block';
-        if (timerInterval) {
-            clearInterval(timerInterval);
-            timerInterval = null;
-        }
-        renderList();
-    });
-
-    // 參與按鈕
-    const joinBtn = document.getElementById('btnJoin');
-    if (!expired && joinBtn) {
-        joinBtn.addEventListener('click', function() {
-            handleJoin(activity.id);
-        });
-    }
-
-    // 儲存 activity 資料供更新用
-    detailContent.dataset.activityId = activity.id;
-}
-
-// ---------- 只更新參與者列表（不重建整個頁面） ----------
-function updateParticipantListOnly() {
-    if (!_currentDetailId) return;
-    
-    const data = loadData();
-    const activity = data.activities.find(a => a.id === _currentDetailId);
-    if (!activity) return;
-
-    const participants = activity.participants || [];
-    const price = parseFloat(activity.price);
-    const count = participants.length;
-    const totalQty = participants.reduce((sum, p) => sum + (parseInt(p.qty) || 1), 0);
-    const totalAmount = calcTotalAmount(participants, price);
-
-    // 更新統計數字
-    const statCount = document.getElementById('statCount');
-    const statTotalQty = document.getElementById('statTotalQty');
-    const statTotalAmount = document.getElementById('statTotalAmount');
-    const summaryTotal = document.getElementById('summaryTotal');
-    const summaryRow = document.getElementById('summaryRow');
-    const container = document.getElementById('participantListContainer');
-
-    if (statCount) statCount.textContent = count;
-    if (statTotalQty) statTotalQty.textContent = totalQty;
-    if (statTotalAmount) statTotalAmount.textContent = formatMoney(totalAmount);
-    if (summaryTotal) summaryTotal.textContent = formatMoney(totalAmount);
 
     // 更新參與者列表
-    if (container) {
-        const html = buildParticipantListHtml(participants, price);
-        container.innerHTML = html;
-    }
+    updateParticipantList(participants, price, totalAmount);
 
-    // 更新總計欄
-    if (summaryRow) {
-        if (participants.length > 0) {
-            summaryRow.innerHTML = `
-                <span>📊 總計</span>
-                <span class="total-amount">${formatMoney(totalAmount)}</span>
-            `;
-        } else {
-            summaryRow.innerHTML = '';
-        }
+    // 重新綁定返回按鈕
+    const backBtn = document.getElementById('backToList');
+    if (backBtn) {
+        backBtn.onclick = function() {
+            detailView.style.display = 'none';
+            listView.style.display = 'block';
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+            renderList();
+        };
     }
 }
 
-// ---------- 建立參與者列表 HTML ----------
-function buildParticipantListHtml(participants, price) {
+// ---------- 更新參與者列表 ----------
+function updateParticipantList(participants, price, totalAmount) {
+    if (!participantListContainer) return;
+
     if (!participants || participants.length === 0) {
-        return '<div style="color:#b0a8a0;text-align:center;padding:16px 0;font-size:15px;">還沒有任何人參與，快來搶購吧 🛍️</div>';
+        participantListContainer.innerHTML = '<div style="color:#b0a8a0;text-align:center;padding:16px 0;font-size:15px;">還沒有任何人參與，快來搶購吧 🛍️</div>';
+        if (summaryRow) summaryRow.innerHTML = '';
+        return;
     }
 
-    return participants.map((p, index) => {
+    let html = participants.map((p, index) => {
         const qty = parseInt(p.qty) || 1;
         const total = calcParticipantTotal(qty, price);
         return `
@@ -508,32 +428,39 @@ function buildParticipantListHtml(participants, price) {
             </div>
         `;
     }).join('');
+
+    participantListContainer.innerHTML = html;
+
+    if (summaryRow) {
+        summaryRow.innerHTML = `
+            <div class="summary-row">
+                <span>📊 總計</span>
+                <span class="total-amount">${formatMoney(totalAmount)}</span>
+            </div>
+        `;
+    }
 }
 
 // ---------- 處理參與 ----------
 function handleJoin(activityId) {
-    const nameInput = document.getElementById('inputName');
-    const addressInput = document.getElementById('inputAddress');
-    const qtyInput = document.getElementById('inputQty');
-
-    const name = nameInput ? nameInput.value.trim() : '';
-    const address = addressInput ? addressInput.value.trim() : '';
-    let qty = parseInt(qtyInput ? qtyInput.value : 1) || 1;
+    const name = inputName.value.trim();
+    const address = inputAddress.value.trim();
+    let qty = parseInt(inputQty.value) || 1;
     if (qty < 1) qty = 1;
 
     if (!name) {
         alert('請輸入你的名字');
-        if (nameInput) nameInput.focus();
+        inputName.focus();
         return;
     }
     if (!address) {
         alert('請輸入社區名稱和門牌號碼');
-        if (addressInput) addressInput.focus();
+        inputAddress.focus();
         return;
     }
 
-    // 儲存用戶資料
     saveUserProfile(name, address);
+    savedHint.style.display = 'block';
 
     const currentData = loadData();
     const currentActivity = currentData.activities.find(a => a.id === activityId);
@@ -555,14 +482,9 @@ function handleJoin(activityId) {
     });
 
     saveData(currentData);
-    
-    // 只更新參與者列表，不重建頁面
-    updateParticipantListOnly();
+    inputQty.value = '1';
+    updateDetailInfoAndParticipants();
     renderList();
-
-    // 清空數量欄位（保留姓名和地址）
-    if (qtyInput) qtyInput.value = '1';
-    currentQty = '1';
 }
 
 // ---------- 刪除接龍 ----------
@@ -580,131 +502,84 @@ function openDeleteModal(activityId) {
     }
 
     _pendingDeleteId = activityId;
-    if (deleteActivityName) {
-        deleteActivityName.textContent = activity.name;
-    }
-    if (deletePassword) {
-        deletePassword.value = '';
-    }
-    if (deleteError) {
-        deleteError.style.display = 'none';
-    }
+    deleteActivityName.textContent = activity.name;
+    deletePassword.value = '';
+    deleteError.style.display = 'none';
     deleteModal.style.display = 'flex';
-    setTimeout(() => {
-        if (deletePassword) deletePassword.focus();
-    }, 100);
+    setTimeout(() => deletePassword.focus(), 100);
 }
 
 function closeDeleteModalFn() {
-    if (deleteModal) {
-        deleteModal.style.display = 'none';
-    }
+    deleteModal.style.display = 'none';
     _pendingDeleteId = null;
-    if (deletePassword) {
+    deletePassword.value = '';
+    deleteError.style.display = 'none';
+}
+
+closeDeleteModal.addEventListener('click', closeDeleteModalFn);
+cancelDelete.addEventListener('click', closeDeleteModalFn);
+deleteModal.addEventListener('click', function(e) {
+    if (e.target === deleteModal) closeDeleteModalFn();
+});
+
+deleteForm.addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const password = deletePassword.value.trim();
+
+    if (password !== ADMIN_PASSWORD) {
+        deleteError.style.display = 'block';
         deletePassword.value = '';
+        deletePassword.focus();
+        return;
     }
-    if (deleteError) {
-        deleteError.style.display = 'none';
-    }
-}
 
-if (closeDeleteModal) {
-    closeDeleteModal.addEventListener('click', closeDeleteModalFn);
-}
-if (cancelDelete) {
-    cancelDelete.addEventListener('click', closeDeleteModalFn);
-}
-if (deleteModal) {
-    deleteModal.addEventListener('click', function(e) {
-        if (e.target === deleteModal) {
-            closeDeleteModalFn();
-        }
-    });
-}
+    deleteError.style.display = 'none';
 
-if (deleteForm) {
-    deleteForm.addEventListener('submit', function(e) {
-        e.preventDefault();
-
-        const password = deletePassword ? deletePassword.value.trim() : '';
-
-        if (password !== ADMIN_PASSWORD) {
-            if (deleteError) {
-                deleteError.style.display = 'block';
-            }
-            if (deletePassword) {
-                deletePassword.value = '';
-                deletePassword.focus();
-            }
-            return;
-        }
-
-        if (deleteError) {
-            deleteError.style.display = 'none';
-        }
-
-        if (!_pendingDeleteId) {
-            alert('發生錯誤，請重新操作');
-            closeDeleteModalFn();
-            return;
-        }
-
-        const data = loadData();
-        const index = data.activities.findIndex(a => a.id === _pendingDeleteId);
-        if (index === -1) {
-            alert('該接龍已不存在');
-            closeDeleteModalFn();
-            return;
-        }
-
-        const deletedName = data.activities[index].name;
-        data.activities.splice(index, 1);
-        saveData(data);
-
+    if (!_pendingDeleteId) {
+        alert('發生錯誤，請重新操作');
         closeDeleteModalFn();
+        return;
+    }
 
-        if (_currentDetailId === _pendingDeleteId) {
-            detailView.style.display = 'none';
-            listView.style.display = 'block';
-            _currentDetailId = null;
-        }
+    const data = loadData();
+    const index = data.activities.findIndex(a => a.id === _pendingDeleteId);
+    if (index === -1) {
+        alert('該接龍已不存在');
+        closeDeleteModalFn();
+        return;
+    }
 
-        renderList();
-        alert(`✅ 已刪除「${deletedName}」`);
-    });
-}
+    const deletedName = data.activities[index].name;
+    data.activities.splice(index, 1);
+    saveData(data);
 
-if (deletePassword) {
-    deletePassword.addEventListener('input', function() {
-        if (deleteError) {
-            deleteError.style.display = 'none';
-        }
-    });
-}
+    closeDeleteModalFn();
 
-// ---------- 輔助 ----------
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
+    if (_currentDetailId === _pendingDeleteId) {
+        detailView.style.display = 'none';
+        listView.style.display = 'block';
+        _currentDetailId = null;
+    }
+
+    renderList();
+    alert(`✅ 已刪除「${deletedName}」`);
+});
+
+deletePassword.addEventListener('input', function() {
+    deleteError.style.display = 'none';
+});
 
 // ============================================================
-//  倒數計時定時器（只更新列表和參與者，不重建表單）
+//  定時器
 // ============================================================
 
 function startTimer() {
-    if (timerInterval) {
-        clearInterval(timerInterval);
-    }
+    if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(function() {
-        // 更新列表（倒數時間會變）
         renderList();
-        
-        // 如果正在看詳情，只更新參與者列表和統計
         if (_currentDetailId && detailView.style.display !== 'none') {
-            updateParticipantListOnly();
+            updateDetailInfoAndParticipants();
         }
     }, 10000);
 }
@@ -718,8 +593,7 @@ btnCreate.addEventListener('click', function() {
     document.getElementById('activityName').focus();
     const defaultDeadline = new Date();
     defaultDeadline.setDate(defaultDeadline.getDate() + 3);
-    const formatted = defaultDeadline.toISOString().slice(0, 16);
-    document.getElementById('activityDeadline').value = formatted;
+    document.getElementById('activityDeadline').value = defaultDeadline.toISOString().slice(0, 16);
     document.getElementById('adminPassword').value = '';
     const errorEl = document.querySelector('.password-error');
     if (errorEl) errorEl.style.display = 'none';
@@ -730,9 +604,7 @@ closeModal.addEventListener('click', function() {
 });
 
 createModal.addEventListener('click', function(e) {
-    if (e.target === createModal) {
-        createModal.style.display = 'none';
-    }
+    if (e.target === createModal) createModal.style.display = 'none';
 });
 
 function ensureErrorElement() {
@@ -792,7 +664,6 @@ createForm.addEventListener('submit', function(e) {
     createModal.style.display = 'none';
     createForm.reset();
     renderList();
-
     alert('✅ 接龍已發佈！');
 });
 
