@@ -52,7 +52,7 @@ const checkFirebase = setInterval(() => {
 const ADMIN_PASSWORD = '123456';
 
 // ============================================================
-//  用戶資料記憶功能（新增！）
+//  用戶資料記憶功能
 // ============================================================
 
 const USER_KEY = 'userProfile';
@@ -81,6 +81,7 @@ function saveUserProfile(name, address) {
 // ============================================================
 
 let localData = { activities: [] };
+let isInputFocused = false;  // ✅ 新增：標記是否正在輸入
 
 function loadDataFromFirebase() {
     if (!db) return;
@@ -94,16 +95,24 @@ function loadDataFromFirebase() {
             }));
             localData = { activities: activities };
             console.log('📥 從 Firebase 讀取資料，共', activities.length, '筆');
-            renderList();
-            if (_currentDetailId && detailView.style.display !== 'none') {
-                const activity = localData.activities.find(a => a.id === _currentDetailId);
-                if (activity) {
-                    renderDetailContent(activity);
+            
+            // ✅ 如果正在輸入，不更新畫面（避免游標跳掉）
+            if (!isInputFocused) {
+                renderList();
+                if (_currentDetailId && detailView.style.display !== 'none') {
+                    const activity = localData.activities.find(a => a.id === _currentDetailId);
+                    if (activity) {
+                        renderDetailContent(activity);
+                    }
                 }
+            } else {
+                console.log('⏸️ 輸入中，暫停更新畫面');
             }
         } else {
             localData = { activities: [] };
-            renderList();
+            if (!isInputFocused) {
+                renderList();
+            }
         }
     }, (error) => {
         console.error('❌ 讀取 Firebase 失敗：', error);
@@ -303,6 +312,11 @@ function showDetail(activityId) {
     renderDetailContent(activity);
 }
 
+// ✅ 儲存當前輸入框的值（用於恢復）
+let tempName = '';
+let tempAddress = '';
+let tempQty = '1';
+
 function renderDetailContent(activity) {
     const participants = activity.participants || [];
     const count = participants.length;
@@ -315,10 +329,14 @@ function renderDetailContent(activity) {
 
     const expiredBadge = expired ? '<span class="badge-expired">已截止</span>' : '';
 
-    // ✅ 讀取已儲存的用戶資料
+    // ✅ 優先使用臨時儲存的值（輸入中的內容），否則用已儲存的用戶資料
     const userProfile = getUserProfile();
     const savedName = userProfile ? userProfile.name : '';
     const savedAddress = userProfile ? userProfile.address : '';
+    
+    const displayName = tempName !== '' ? tempName : savedName;
+    const displayAddress = tempAddress !== '' ? tempAddress : savedAddress;
+    const displayQty = tempQty !== '' ? tempQty : '1';
 
     let participantHtml = '';
     if (participants.length === 0) {
@@ -373,11 +391,10 @@ function renderDetailContent(activity) {
             </div>
         </div>
 
-        <!-- ✅ 參與表單：自動帶入已儲存的姓名和地址 -->
         <div class="participant-form">
-            <input type="text" id="inputName" placeholder="你的名字" required ${expired ? 'disabled' : ''} value="${escapeHtml(savedName)}">
-            <input type="text" id="inputAddress" placeholder="社區名稱 + 門牌號碼（如：幸福社區 5號3樓）" required ${expired ? 'disabled' : ''} value="${escapeHtml(savedAddress)}">
-            <input type="number" id="inputQty" placeholder="購買數量" value="1" min="1" ${expired ? 'disabled' : ''}>
+            <input type="text" id="inputName" placeholder="你的名字" required ${expired ? 'disabled' : ''} value="${escapeHtml(displayName)}">
+            <input type="text" id="inputAddress" placeholder="社區名稱 + 門牌號碼（如：幸福社區 5號3樓）" required ${expired ? 'disabled' : ''} value="${escapeHtml(displayAddress)}">
+            <input type="number" id="inputQty" placeholder="購買數量" value="${displayQty}" min="1" ${expired ? 'disabled' : ''}>
             <button class="${btnClass}" id="btnJoin" ${btnDisabled}>
                 ${btnText}
             </button>
@@ -399,9 +416,62 @@ function renderDetailContent(activity) {
         </div>
     `;
 
+    // ✅ 綁定輸入事件：儲存當前輸入值 + 標記輸入中
+    const nameInput = document.getElementById('inputName');
+    const addressInput = document.getElementById('inputAddress');
+    const qtyInput = document.getElementById('inputQty');
+
+    if (nameInput) {
+        nameInput.addEventListener('focus', function() {
+            isInputFocused = true;
+            console.log('⌨️ 姓名輸入中');
+        });
+        nameInput.addEventListener('blur', function() {
+            isInputFocused = false;
+            tempName = this.value;
+            console.log('✅ 姓名輸入完成');
+        });
+        nameInput.addEventListener('input', function() {
+            tempName = this.value;
+        });
+    }
+
+    if (addressInput) {
+        addressInput.addEventListener('focus', function() {
+            isInputFocused = true;
+            console.log('⌨️ 地址輸入中');
+        });
+        addressInput.addEventListener('blur', function() {
+            isInputFocused = false;
+            tempAddress = this.value;
+            console.log('✅ 地址輸入完成');
+        });
+        addressInput.addEventListener('input', function() {
+            tempAddress = this.value;
+        });
+    }
+
+    if (qtyInput) {
+        qtyInput.addEventListener('focus', function() {
+            isInputFocused = true;
+        });
+        qtyInput.addEventListener('blur', function() {
+            isInputFocused = false;
+            tempQty = this.value || '1';
+        });
+        qtyInput.addEventListener('input', function() {
+            tempQty = this.value || '1';
+        });
+    }
+
     document.getElementById('backToList').addEventListener('click', function() {
         detailView.style.display = 'none';
         listView.style.display = 'block';
+        isInputFocused = false;
+        // 清除臨時值
+        tempName = '';
+        tempAddress = '';
+        tempQty = '1';
         if (timerInterval) {
             clearInterval(timerInterval);
             timerInterval = null;
@@ -423,23 +493,23 @@ function handleJoin(activityId) {
     const addressInput = document.getElementById('inputAddress');
     const qtyInput = document.getElementById('inputQty');
 
-    const name = nameInput.value.trim();
-    const address = addressInput.value.trim();
-    let qty = parseInt(qtyInput.value) || 1;
+    const name = nameInput ? nameInput.value.trim() : '';
+    const address = addressInput ? addressInput.value.trim() : '';
+    let qty = parseInt(qtyInput ? qtyInput.value : 1) || 1;
     if (qty < 1) qty = 1;
 
     if (!name) {
         alert('請輸入你的名字');
-        nameInput.focus();
+        if (nameInput) nameInput.focus();
         return;
     }
     if (!address) {
         alert('請輸入社區名稱和門牌號碼');
-        addressInput.focus();
+        if (addressInput) addressInput.focus();
         return;
     }
 
-    // ✅ 儲存用戶資料（記住姓名和地址）
+    // 儲存用戶資料
     saveUserProfile(name, address);
 
     const currentData = loadData();
@@ -464,6 +534,10 @@ function handleJoin(activityId) {
     });
 
     saveData(currentData);
+    // 清除臨時值
+    tempName = '';
+    tempAddress = '';
+    tempQty = '1';
     renderDetailContent(currentActivity);
     renderList();
 }
@@ -602,6 +676,10 @@ function startTimer() {
         clearInterval(timerInterval);
     }
     timerInterval = setInterval(function() {
+        // ✅ 如果正在輸入，不更新畫面
+        if (isInputFocused) {
+            return;
+        }
         if (detailView.style.display !== 'none' && _currentDetailId) {
             const data = loadData();
             const activity = data.activities.find(a => a.id === _currentDetailId);
