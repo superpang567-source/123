@@ -17,7 +17,6 @@ const firebaseConfig = {
 //  初始化 Firebase
 // ============================================================
 
-// 動態載入 Firebase SDK
 const script1 = document.createElement('script');
 script1.src = 'https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js';
 document.head.appendChild(script1);
@@ -28,7 +27,6 @@ document.head.appendChild(script2);
 
 let db = null;
 let firebaseReady = false;
-let isFirstLoad = true;
 
 function initFirebase() {
     if (typeof firebase !== 'undefined' && !firebaseReady) {
@@ -36,12 +34,10 @@ function initFirebase() {
         db = firebase.database();
         firebaseReady = true;
         console.log('✅ Firebase 已連線');
-        // 連線後立即讀取資料
         loadDataFromFirebase();
     }
 }
 
-// 檢查 Firebase 是否載入完成
 const checkFirebase = setInterval(() => {
     if (typeof firebase !== 'undefined') {
         clearInterval(checkFirebase);
@@ -56,12 +52,36 @@ const checkFirebase = setInterval(() => {
 const ADMIN_PASSWORD = '123456';
 
 // ============================================================
+//  用戶資料記憶功能（新增！）
+// ============================================================
+
+const USER_KEY = 'userProfile';
+
+function getUserProfile() {
+    const raw = localStorage.getItem(USER_KEY);
+    if (!raw) return null;
+    try {
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
+}
+
+function saveUserProfile(name, address) {
+    localStorage.setItem(USER_KEY, JSON.stringify({
+        name: name.trim(),
+        address: address.trim(),
+        savedAt: new Date().toISOString()
+    }));
+    console.log('✅ 用戶資料已儲存');
+}
+
+// ============================================================
 //  資料層（使用 Firebase）
 // ============================================================
 
 let localData = { activities: [] };
 
-// 從 Firebase 讀取資料（即時同步）
 function loadDataFromFirebase() {
     if (!db) return;
     
@@ -74,8 +94,6 @@ function loadDataFromFirebase() {
             }));
             localData = { activities: activities };
             console.log('📥 從 Firebase 讀取資料，共', activities.length, '筆');
-            
-            // 更新畫面
             renderList();
             if (_currentDetailId && detailView.style.display !== 'none') {
                 const activity = localData.activities.find(a => a.id === _currentDetailId);
@@ -92,7 +110,6 @@ function loadDataFromFirebase() {
     });
 }
 
-// 儲存到 Firebase
 function saveDataToFirebase(data) {
     if (!db) {
         console.warn('⚠️ Firebase 尚未連線，稍後再試');
@@ -298,6 +315,11 @@ function renderDetailContent(activity) {
 
     const expiredBadge = expired ? '<span class="badge-expired">已截止</span>' : '';
 
+    // ✅ 讀取已儲存的用戶資料
+    const userProfile = getUserProfile();
+    const savedName = userProfile ? userProfile.name : '';
+    const savedAddress = userProfile ? userProfile.address : '';
+
     let participantHtml = '';
     if (participants.length === 0) {
         participantHtml = '<div style="color:#b0a8a0;text-align:center;padding:16px 0;font-size:15px;">還沒有任何人參與，快來搶購吧 🛍️</div>';
@@ -351,13 +373,15 @@ function renderDetailContent(activity) {
             </div>
         </div>
 
+        <!-- ✅ 參與表單：自動帶入已儲存的姓名和地址 -->
         <div class="participant-form">
-            <input type="text" id="inputName" placeholder="你的名字" required ${expired ? 'disabled' : ''}>
-            <input type="text" id="inputAddress" placeholder="社區名稱 + 門牌號碼（如：幸福社區 5號3樓）" required ${expired ? 'disabled' : ''}>
+            <input type="text" id="inputName" placeholder="你的名字" required ${expired ? 'disabled' : ''} value="${escapeHtml(savedName)}">
+            <input type="text" id="inputAddress" placeholder="社區名稱 + 門牌號碼（如：幸福社區 5號3樓）" required ${expired ? 'disabled' : ''} value="${escapeHtml(savedAddress)}">
             <input type="number" id="inputQty" placeholder="購買數量" value="1" min="1" ${expired ? 'disabled' : ''}>
             <button class="${btnClass}" id="btnJoin" ${btnDisabled}>
                 ${btnText}
             </button>
+            ${userProfile ? `<div style="font-size:12px;color:#8a7a6a;text-align:right;margin-top:4px;">💾 已記住你的資料</div>` : ''}
         </div>
 
         <div class="participant-list">
@@ -414,6 +438,9 @@ function handleJoin(activityId) {
         addressInput.focus();
         return;
     }
+
+    // ✅ 儲存用戶資料（記住姓名和地址）
+    saveUserProfile(name, address);
 
     const currentData = loadData();
     const currentActivity = currentData.activities.find(a => a.id === activityId);
