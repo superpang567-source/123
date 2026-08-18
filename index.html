@@ -17,15 +17,15 @@
             <div id="activityList"></div>
         </div>
 
-        <!-- ===== 詳情頁（表單獨立出來，不會被重新繪製） ===== -->
+        <!-- ===== 詳情頁 ===== -->
         <div id="detailView" style="display: none;">
             
-            <!-- 返回按鈕和商品資訊（會被更新） -->
+            <!-- 商品資訊區 -->
             <div id="detailContent">
-                <!-- 商品名稱、價格、倒數、統計卡片 -->
+                <!-- 由 JavaScript 動態產生 -->
             </div>
 
-            <!-- ⭐ 參與表單（獨立出來，永遠不會被重新繪製！） -->
+            <!-- ⭐ 參與表單（固定，不會被重新繪製） -->
             <div class="participant-form" id="fixedForm">
                 <input type="text" id="inputName" placeholder="你的名字" required>
                 <input type="text" id="inputAddress" placeholder="社區名稱 + 門牌號碼（如：幸福社區 5號3樓）" required>
@@ -34,12 +34,8 @@
                 <div id="savedHint" style="font-size:12px;color:#8a7a6a;text-align:right;margin-top:4px;display:none;">💾 已記住你的資料</div>
             </div>
 
-            <!-- 參與者列表（會被更新） -->
+            <!-- ⭐ 參與者列表（純列表，沒有標題） -->
             <div class="participant-list" id="participantSection">
-                <div class="list-header">
-                    <span>📋 已參與</span>
-                    <span>金額</span>
-                </div>
                 <div id="participantListContainer"></div>
                 <div id="summaryRow"></div>
             </div>
