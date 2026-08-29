@@ -310,9 +310,27 @@ function showDetail(activityId) {
 
     updateDetailInfoAndParticipants();
 
-    btnJoin.onclick = function() {
-        handleJoin(activity.id);
+    // ✅ 修復：確保按鈕事件綁定
+    bindJoinButton(activity.id);
+}
+
+// ✅ 獨立綁定按鈕事件
+function bindJoinButton(activityId) {
+    // 移除所有舊的監聽器（避免重複綁定）
+    const newBtn = btnJoin.cloneNode(true);
+    btnJoin.parentNode.replaceChild(newBtn, btnJoin);
+    
+    // 重新取得按鈕參照
+    const freshBtn = document.getElementById('btnJoin');
+    
+    // 綁定點擊事件
+    freshBtn.onclick = function(e) {
+        e.preventDefault();
+        console.log('🔘 按鈕被點擊了！');
+        handleJoin(activityId);
     };
+    
+    console.log('✅ 按鈕已綁定，活動 ID：', activityId);
 }
 
 // ---------- 更新商品資訊 + 參與者列表 ----------
@@ -364,24 +382,27 @@ function updateDetailInfoAndParticipants() {
         </div>
     `;
 
-    // 更新按鈕狀態
-    if (expired) {
-        btnJoin.disabled = true;
-        btnJoin.textContent = '⏰ 已截止，無法參與';
-        btnJoin.className = 'btn-submit expired-btn';
-        inputName.disabled = true;
-        inputAddress.disabled = true;
-        inputQty.disabled = true;
-    } else {
-        btnJoin.disabled = false;
-        btnJoin.textContent = '🔥 立即參與';
-        btnJoin.className = 'btn-submit';
-        inputName.disabled = false;
-        inputAddress.disabled = false;
-        inputQty.disabled = false;
+    // ✅ 更新按鈕狀態（但不重建按鈕）
+    const currentBtn = document.getElementById('btnJoin');
+    if (currentBtn) {
+        if (expired) {
+            currentBtn.disabled = true;
+            currentBtn.textContent = '⏰ 已截止，無法參與';
+            currentBtn.className = 'btn-submit expired-btn';
+            inputName.disabled = true;
+            inputAddress.disabled = true;
+            inputQty.disabled = true;
+        } else {
+            currentBtn.disabled = false;
+            currentBtn.textContent = '🔥 立即參與';
+            currentBtn.className = 'btn-submit';
+            inputName.disabled = false;
+            inputAddress.disabled = false;
+            inputQty.disabled = false;
+        }
     }
 
-    // 更新參與者列表（純列表，沒有標題）
+    // 更新參與者列表
     if (!participants || participants.length === 0) {
         participantListContainer.innerHTML = '<div style="color:#b0a8a0;text-align:center;padding:16px 0;font-size:15px;">還沒有任何人參與，快來搶購吧 🛍️</div>';
         if (summaryRow) summaryRow.innerHTML = '';
@@ -431,10 +452,16 @@ function updateDetailInfoAndParticipants() {
 
 // ---------- 處理參與 ----------
 function handleJoin(activityId) {
+    console.log('🔄 handleJoin 被執行，活動 ID：', activityId);
+    
     const name = inputName.value.trim();
     const address = inputAddress.value.trim();
     let qty = parseInt(inputQty.value) || 1;
     if (qty < 1) qty = 1;
+
+    console.log('📝 姓名：', name);
+    console.log('📝 地址：', address);
+    console.log('📝 數量：', qty);
 
     if (!name) {
         alert('請輸入你的名字');
@@ -469,10 +496,11 @@ function handleJoin(activityId) {
         joinedAt: new Date().toISOString()
     });
 
-    saveData(currentActivity);
+    saveData(currentData);
     inputQty.value = '1';
     updateDetailInfoAndParticipants();
     renderList();
+    alert(`✅ ${name}，你已成功參與！`);
 }
 
 // ---------- 刪除接龍 ----------
