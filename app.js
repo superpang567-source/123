@@ -17,6 +17,7 @@ const firebaseConfig = {
 //  初始化 Firebase
 // ============================================================
 
+// 先載入 Firebase SDK
 const script1 = document.createElement('script');
 script1.src = 'https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js';
 document.head.appendChild(script1);
@@ -38,6 +39,7 @@ function initFirebase() {
     }
 }
 
+// 等待 Firebase 載入
 const checkFirebase = setInterval(() => {
     if (typeof firebase !== 'undefined') {
         clearInterval(checkFirebase);
@@ -96,9 +98,7 @@ function loadDataFromFirebase() {
             }));
             localData = { activities: activities };
             console.log('📥 從 Firebase 讀取資料，共', activities.length, '筆');
-            
             renderList();
-            
             if (_currentDetailId && detailView.style.display !== 'none') {
                 updateDetailInfoAndParticipants();
             }
@@ -118,7 +118,7 @@ function saveDataToFirebase(data) {
     }
     
     const activitiesObj = {};
-    data.activities.forEach(a => {
+    (data.activities || []).forEach(a => {
         activitiesObj[a.id] = {
             name: a.name,
             price: a.price,
@@ -226,10 +226,13 @@ const btnJoin = document.getElementById('btnJoin');
 
 let timerInterval = null;
 
-// ---------- 渲染列表 ----------
+// ============================================================
+//  1. 渲染列表
+// ============================================================
+
 function renderList() {
     const data = loadData();
-    if (data.activities.length === 0) {
+    if (!data.activities || data.activities.length === 0) {
         activityList.innerHTML = `
             <div style="text-align:center;color:#8a7a6a;padding:50px 0;font-size:17px;line-height:2;">
                 🍃 還沒有接龍<br>
@@ -242,8 +245,8 @@ function renderList() {
     const sorted = [...data.activities].reverse();
     let html = '';
     sorted.forEach(a => {
-        const participantCount = a.participants ? a.participants.length : 0;
-        const totalQty = a.participants ? a.participants.reduce((sum, p) => sum + (parseInt(p.qty) || 1), 0) : 0;
+        const participantCount = (a.participants || []).length;
+        const totalQty = (a.participants || []).reduce((sum, p) => sum + (parseInt(p.qty) || 1), 0);
         const expired = isExpired(a.deadline);
         const remainingText = getRemainingText(a.deadline);
         const deadlineClass = expired ? 'deadline expired' : 'deadline';
@@ -283,11 +286,14 @@ function renderList() {
     });
 }
 
-// ---------- 顯示詳情 ----------
+// ============================================================
+//  2. 顯示詳情
+// ============================================================
+
 function showDetail(activityId) {
     _currentDetailId = activityId;
     const data = loadData();
-    const activity = data.activities.find(a => a.id === activityId);
+    const activity = (data.activities || []).find(a => a.id === activityId);
     if (!activity) {
         alert('該接龍已不存在或已刪除');
         return;
@@ -296,6 +302,7 @@ function showDetail(activityId) {
     listView.style.display = 'none';
     detailView.style.display = 'block';
 
+    // 載入用戶資料
     const userProfile = getUserProfile();
     if (userProfile) {
         inputName.value = userProfile.name || '';
@@ -309,36 +316,17 @@ function showDetail(activityId) {
     inputQty.value = '1';
 
     updateDetailInfoAndParticipants();
-
-    // ✅ 修復：確保按鈕事件綁定
-    bindJoinButton(activity.id);
 }
 
-// ✅ 獨立綁定按鈕事件
-function bindJoinButton(activityId) {
-    // 移除所有舊的監聽器（避免重複綁定）
-    const newBtn = btnJoin.cloneNode(true);
-    btnJoin.parentNode.replaceChild(newBtn, btnJoin);
-    
-    // 重新取得按鈕參照
-    const freshBtn = document.getElementById('btnJoin');
-    
-    // 綁定點擊事件
-    freshBtn.onclick = function(e) {
-        e.preventDefault();
-        console.log('🔘 按鈕被點擊了！');
-        handleJoin(activityId);
-    };
-    
-    console.log('✅ 按鈕已綁定，活動 ID：', activityId);
-}
+// ============================================================
+//  3. 更新詳情內容
+// ============================================================
 
-// ---------- 更新商品資訊 + 參與者列表 ----------
 function updateDetailInfoAndParticipants() {
     if (!_currentDetailId) return;
     
     const data = loadData();
-    const activity = data.activities.find(a => a.id === _currentDetailId);
+    const activity = (data.activities || []).find(a => a.id === _currentDetailId);
     if (!activity) {
         detailContent.innerHTML = '<div style="color:#ff6b6b;text-align:center;padding:30px 0;">⚠️ 此接龍已被刪除</div>';
         participantListContainer.innerHTML = '';
@@ -347,7 +335,7 @@ function updateDetailInfoAndParticipants() {
     }
 
     const participants = activity.participants || [];
-    const price = parseFloat(activity.price);
+    const price = parseFloat(activity.price) || 0;
     const count = participants.length;
     const totalQty = participants.reduce((sum, p) => sum + (parseInt(p.qty) || 1), 0);
     const totalAmount = calcTotalAmount(participants, price);
@@ -356,6 +344,7 @@ function updateDetailInfoAndParticipants() {
     const deadlineClass = expired ? 'detail-deadline expired' : 'detail-deadline';
     const expiredBadge = expired ? '<span class="badge-expired">已截止</span>' : '';
 
+    // 更新商品資訊
     detailContent.innerHTML = `
         <button class="back-btn" id="backToList">← 返回列表</button>
         <div class="detail-title">
@@ -382,7 +371,7 @@ function updateDetailInfoAndParticipants() {
         </div>
     `;
 
-    // ✅ 更新按鈕狀態（但不重建按鈕）
+    // 更新按鈕狀態
     const currentBtn = document.getElementById('btnJoin');
     if (currentBtn) {
         if (expired) {
@@ -435,7 +424,7 @@ function updateDetailInfoAndParticipants() {
         }
     }
 
-    // 重新綁定返回按鈕
+    // 綁定返回按鈕
     const backBtn = document.getElementById('backToList');
     if (backBtn) {
         backBtn.onclick = function() {
@@ -450,9 +439,12 @@ function updateDetailInfoAndParticipants() {
     }
 }
 
-// ---------- 處理參與 ----------
-function handleJoin(activityId) {
-    console.log('🔄 handleJoin 被執行，活動 ID：', activityId);
+// ============================================================
+//  4. 處理參與（綁定到 btnJoin）
+// ============================================================
+
+function handleJoin() {
+    console.log('🔄 handleJoin 被執行');
     
     const name = inputName.value.trim();
     const address = inputAddress.value.trim();
@@ -474,11 +466,13 @@ function handleJoin(activityId) {
         return;
     }
 
-    saveUserProfile(name, address);
-    savedHint.style.display = 'block';
+    if (!_currentDetailId) {
+        alert('請先選擇一個接龍');
+        return;
+    }
 
     const currentData = loadData();
-    const currentActivity = currentData.activities.find(a => a.id === activityId);
+    const currentActivity = (currentData.activities || []).find(a => a.id === _currentDetailId);
     if (!currentActivity) {
         alert('接龍已不存在');
         return;
@@ -488,6 +482,9 @@ function handleJoin(activityId) {
         return;
     }
 
+    saveUserProfile(name, address);
+    savedHint.style.display = 'block';
+
     if (!currentActivity.participants) currentActivity.participants = [];
     currentActivity.participants.push({
         name: name,
@@ -496,6 +493,7 @@ function handleJoin(activityId) {
         joinedAt: new Date().toISOString()
     });
 
+    // 儲存到 Firebase
     saveData(currentData);
     inputQty.value = '1';
     updateDetailInfoAndParticipants();
@@ -503,7 +501,55 @@ function handleJoin(activityId) {
     alert(`✅ ${name}，你已成功參與！`);
 }
 
-// ---------- 刪除接龍 ----------
+// ============================================================
+//  5. 綁定按鈕事件（頁面載入時執行一次）
+// ============================================================
+
+function bindAllButtons() {
+    // 綁定「發起接龍」按鈕
+    if (btnCreate) {
+        btnCreate.onclick = function() {
+            console.log('🔘 發起接龍按鈕被點擊');
+            createModal.style.display = 'flex';
+            document.getElementById('activityName').focus();
+            const defaultDeadline = new Date();
+            defaultDeadline.setDate(defaultDeadline.getDate() + 3);
+            document.getElementById('activityDeadline').value = defaultDeadline.toISOString().slice(0, 16);
+            document.getElementById('adminPassword').value = '';
+            const errorEl = document.querySelector('.password-error');
+            if (errorEl) errorEl.style.display = 'none';
+        };
+    }
+
+    // 綁定「立即參與」按鈕
+    if (btnJoin) {
+        btnJoin.onclick = function(e) {
+            e.preventDefault();
+            console.log('🔘 立即參與按鈕被點擊');
+            handleJoin();
+        };
+    }
+
+    // 綁定「關閉彈窗」
+    if (closeModal) {
+        closeModal.onclick = function() {
+            createModal.style.display = 'none';
+        };
+    }
+
+    if (createModal) {
+        createModal.onclick = function(e) {
+            if (e.target === createModal) createModal.style.display = 'none';
+        };
+    }
+
+    console.log('✅ 所有按鈕已綁定');
+}
+
+// ============================================================
+//  6. 刪除接龍
+// ============================================================
+
 function openDeleteModal(activityId) {
     if (!deleteModal) {
         alert('❌ 刪除視窗元件遺失，請重新整理頁面');
@@ -511,7 +557,7 @@ function openDeleteModal(activityId) {
     }
 
     const data = loadData();
-    const activity = data.activities.find(a => a.id === activityId);
+    const activity = (data.activities || []).find(a => a.id === activityId);
     if (!activity) {
         alert('該接龍已不存在');
         return;
@@ -532,62 +578,143 @@ function closeDeleteModalFn() {
     deleteError.style.display = 'none';
 }
 
-closeDeleteModal.addEventListener('click', closeDeleteModalFn);
-cancelDelete.addEventListener('click', closeDeleteModalFn);
-deleteModal.addEventListener('click', function(e) {
-    if (e.target === deleteModal) closeDeleteModalFn();
-});
+if (closeDeleteModal) {
+    closeDeleteModal.onclick = closeDeleteModalFn;
+}
+if (cancelDelete) {
+    cancelDelete.onclick = closeDeleteModalFn;
+}
+if (deleteModal) {
+    deleteModal.onclick = function(e) {
+        if (e.target === deleteModal) closeDeleteModalFn();
+    };
+}
 
-deleteForm.addEventListener('submit', function(e) {
-    e.preventDefault();
+if (deleteForm) {
+    deleteForm.onsubmit = function(e) {
+        e.preventDefault();
 
-    const password = deletePassword.value.trim();
+        const password = deletePassword.value.trim();
 
-    if (password !== ADMIN_PASSWORD) {
-        deleteError.style.display = 'block';
-        deletePassword.value = '';
-        deletePassword.focus();
-        return;
-    }
+        if (password !== ADMIN_PASSWORD) {
+            deleteError.style.display = 'block';
+            deletePassword.value = '';
+            deletePassword.focus();
+            return;
+        }
 
-    deleteError.style.display = 'none';
+        deleteError.style.display = 'none';
 
-    if (!_pendingDeleteId) {
-        alert('發生錯誤，請重新操作');
+        if (!_pendingDeleteId) {
+            alert('發生錯誤，請重新操作');
+            closeDeleteModalFn();
+            return;
+        }
+
+        const data = loadData();
+        const index = (data.activities || []).findIndex(a => a.id === _pendingDeleteId);
+        if (index === -1) {
+            alert('該接龍已不存在');
+            closeDeleteModalFn();
+            return;
+        }
+
+        const deletedName = data.activities[index].name;
+        data.activities.splice(index, 1);
+        saveData(data);
+
         closeDeleteModalFn();
-        return;
-    }
 
-    const data = loadData();
-    const index = data.activities.findIndex(a => a.id === _pendingDeleteId);
-    if (index === -1) {
-        alert('該接龍已不存在');
-        closeDeleteModalFn();
-        return;
-    }
+        if (_currentDetailId === _pendingDeleteId) {
+            detailView.style.display = 'none';
+            listView.style.display = 'block';
+            _currentDetailId = null;
+        }
 
-    const deletedName = data.activities[index].name;
-    data.activities.splice(index, 1);
-    saveData(data);
+        renderList();
+        alert(`✅ 已刪除「${deletedName}」`);
+    };
+}
 
-    closeDeleteModalFn();
-
-    if (_currentDetailId === _pendingDeleteId) {
-        detailView.style.display = 'none';
-        listView.style.display = 'block';
-        _currentDetailId = null;
-    }
-
-    renderList();
-    alert(`✅ 已刪除「${deletedName}」`);
-});
-
-deletePassword.addEventListener('input', function() {
-    deleteError.style.display = 'none';
-});
+if (deletePassword) {
+    deletePassword.oninput = function() {
+        deleteError.style.display = 'none';
+    };
+}
 
 // ============================================================
-//  定時器
+//  7. 建立接龍（表單提交）
+// ============================================================
+
+function ensureErrorElement() {
+    let errorEl = document.querySelector('.password-error');
+    if (!errorEl) {
+        const form = document.getElementById('createForm');
+        const passwordInput = document.getElementById('adminPassword');
+        errorEl = document.createElement('div');
+        errorEl.className = 'password-error';
+        errorEl.textContent = '❌ 密碼錯誤，請重新輸入';
+        if (passwordInput) {
+            passwordInput.parentNode.insertBefore(errorEl, passwordInput.nextSibling);
+        }
+    }
+    return errorEl;
+}
+
+if (createForm) {
+    createForm.onsubmit = function(e) {
+        e.preventDefault();
+        console.log('🔘 發布表單被提交');
+
+        const password = document.getElementById('adminPassword').value.trim();
+        const errorEl = ensureErrorElement();
+
+        if (password !== ADMIN_PASSWORD) {
+            errorEl.style.display = 'block';
+            document.getElementById('adminPassword').focus();
+            document.getElementById('adminPassword').select();
+            return;
+        }
+        errorEl.style.display = 'none';
+
+        const name = document.getElementById('activityName').value.trim();
+        const price = parseFloat(document.getElementById('activityPrice').value);
+        const deadline = document.getElementById('activityDeadline').value;
+        const desc = document.getElementById('activityDesc').value.trim();
+
+        if (!name) { alert('請輸入商品名稱'); return; }
+        if (isNaN(price) || price <= 0) { alert('請輸入有效價格'); return; }
+        if (!deadline) { alert('請設定截止時間'); return; }
+        if (new Date(deadline).getTime() <= Date.now()) {
+            alert('截止時間必須在未來');
+            return;
+        }
+
+        const data = loadData();
+        if (!data.activities) data.activities = [];
+        
+        const newActivity = {
+            id: generateId(),
+            name: name,
+            price: price,
+            deadline: deadline,
+            desc: desc,
+            createdAt: new Date().toISOString(),
+            participants: []
+        };
+
+        data.activities.push(newActivity);
+        saveData(data);
+
+        createModal.style.display = 'none';
+        createForm.reset();
+        renderList();
+        alert('✅ 接龍已發佈！');
+    };
+}
+
+// ============================================================
+//  8. 定時器
 // ============================================================
 
 function startTimer() {
@@ -601,105 +728,19 @@ function startTimer() {
 }
 
 // ============================================================
-//  建立接龍
-// ============================================================
-
-btnCreate.addEventListener('click', function() {
-    createModal.style.display = 'flex';
-    document.getElementById('activityName').focus();
-    const defaultDeadline = new Date();
-    defaultDeadline.setDate(defaultDeadline.getDate() + 3);
-    document.getElementById('activityDeadline').value = defaultDeadline.toISOString().slice(0, 16);
-    document.getElementById('adminPassword').value = '';
-    const errorEl = document.querySelector('.password-error');
-    if (errorEl) errorEl.style.display = 'none';
-});
-
-closeModal.addEventListener('click', function() {
-    createModal.style.display = 'none';
-});
-
-createModal.addEventListener('click', function(e) {
-    if (e.target === createModal) createModal.style.display = 'none';
-});
-
-function ensureErrorElement() {
-    let errorEl = document.querySelector('.password-error');
-    if (!errorEl) {
-        const form = document.getElementById('createForm');
-        const passwordInput = document.getElementById('adminPassword');
-        errorEl = document.createElement('div');
-        errorEl.className = 'password-error';
-        errorEl.textContent = '❌ 密碼錯誤，請重新輸入';
-        passwordInput.parentNode.insertBefore(errorEl, passwordInput.nextSibling);
-    }
-    return errorEl;
-}
-
-createForm.addEventListener('submit', function(e) {
-    e.preventDefault();
-
-    const password = document.getElementById('adminPassword').value.trim();
-    const errorEl = ensureErrorElement();
-
-    if (password !== ADMIN_PASSWORD) {
-        errorEl.style.display = 'block';
-        document.getElementById('adminPassword').focus();
-        document.getElementById('adminPassword').select();
-        return;
-    }
-    errorEl.style.display = 'none';
-
-    const name = document.getElementById('activityName').value.trim();
-    const price = parseFloat(document.getElementById('activityPrice').value);
-    const deadline = document.getElementById('activityDeadline').value;
-    const desc = document.getElementById('activityDesc').value.trim();
-
-    if (!name) { alert('請輸入商品名稱'); return; }
-    if (isNaN(price) || price <= 0) { alert('請輸入有效價格'); return; }
-    if (!deadline) { alert('請設定截止時間'); return; }
-    if (new Date(deadline).getTime() <= Date.now()) {
-        alert('截止時間必須在未來');
-        return;
-    }
-
-    const data = loadData();
-    const newActivity = {
-        id: generateId(),
-        name: name,
-        price: price,
-        deadline: deadline,
-        desc: desc,
-        createdAt: new Date().toISOString(),
-        participants: []
-    };
-
-    data.activities.push(newActivity);
-    saveData(data);
-
-    createModal.style.display = 'none';
-    createForm.reset();
-    renderList();
-    alert('✅ 接龍已發佈！');
-});
-
-document.addEventListener('DOMContentLoaded', function() {
-    const passwordInput = document.getElementById('adminPassword');
-    if (passwordInput) {
-        passwordInput.addEventListener('input', function() {
-            const errorEl = document.querySelector('.password-error');
-            if (errorEl) errorEl.style.display = 'none';
-        });
-    }
-});
-
-// ============================================================
-//  啟動
+//  9. 啟動
 // ============================================================
 
 console.log('🚀 阿邦團購啟動中...');
 console.log('🔑 管理密碼：', ADMIN_PASSWORD);
+
+// 先綁定所有按鈕
+bindAllButtons();
+
+// 渲染列表
 renderList();
+
+// 啟動定時器
 startTimer();
 
 if (!firebaseReady) {
